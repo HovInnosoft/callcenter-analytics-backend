@@ -256,7 +256,7 @@ function buildDataset() {
     },
   ];
 
-  const extraPositive = [
+  const extraPositiveRaw = [
     {
       transcript: `Օպերատոր: Բարև ձեզ, ապահովագրական սպասարկում:
 Քաղաքացի: Բարև ձեզ, ուզում եմ շնորհակալություն հայտնել։ Վերականգնողական բուժման թույլտվությունը մեկ օրում հաստատվեց:
@@ -392,21 +392,34 @@ function buildDataset() {
       topicClusterTitle: "Էլեկտրոնային պատմության հասանելիություն",
       customerRequest: "Դրական արձագանք՝ էլեկտրոնային առողջապահական պատմության հասանելիության վերաբերյալ։",
     },
-  ].map((item, i) => ({
+  ];
+
+  const positiveTopicBuckets = [
+    { id: "am_pos_fast_service", title: "Արագ սպասարկում" },
+    { id: "am_pos_clear_guidance", title: "Հստակ խորհրդատվություն" },
+    { id: "am_pos_easy_access", title: "Հեշտ հասանելիություն" },
+    { id: "am_pos_digital_success", title: "Թվային գործընթացի հաջողություն" },
+  ];
+  const positiveTopicPattern = [0, 0, 1, 0, 2, 1, 0, 3, 1, 0, 2, 0, 1, 3, 0];
+
+  const extraPositive = extraPositiveRaw.map((item, i) => {
+    const topic = positiveTopicBuckets[positiveTopicPattern[i % positiveTopicPattern.length]];
+    return {
     channel: i % 4 === 0 ? "webchat" : "voice",
     transcript: item.transcript,
     sentimentLabel: "positive",
     sentimentScore: 0.66 + (i % 5) * 0.05,
     baseNeedType: "Information Request",
-    topicClusterId: item.topicClusterId,
-    topicClusterTitle: item.topicClusterTitle,
+    topicClusterId: topic.id,
+    topicClusterTitle: topic.title,
     customerRequest: item.customerRequest,
     actionsTaken: "Տրամադրվել է անհրաժեշտ հաստատում/տեղեկատվություն, հաճախորդը գոհունակություն է հայտնել։",
     status: "resolved",
     nextBestAction: "Լրացուցիչ քայլ չի պահանջվում։",
-  }));
+    };
+  });
 
-  const extraNeutral = [
+  const extraNeutralRaw = [
     {
       transcript: `Օպերատոր: Բարև ձեզ:
 Քաղաքացի: Կցանկանայի հասկանալ՝ տարեկան քանի կանխարգելիչ այց է ներառված փաթեթում:
@@ -497,19 +510,32 @@ function buildDataset() {
       topicClusterTitle: "Այցելությունների պատմության դիտում",
       customerRequest: "Տեղեկատվություն՝ նախորդ բժշկական այցելությունների պատմության դիտման մասին։",
     },
-  ].map((item, i) => ({
+  ];
+
+  const neutralTopicBuckets = [
+    { id: "am_neu_coverage_rules", title: "Ծածկույթի կանոնների պարզաբանում" },
+    { id: "am_neu_documentation", title: "Փաստաթղթերի և տվյալների ճշտում" },
+    { id: "am_neu_process_steps", title: "Գործընթացի քայլերի ուղեցույց" },
+    { id: "am_neu_status_checks", title: "Կարգավիճակի և ժամկետի հարցումներ" },
+  ];
+  const neutralTopicPattern = [0, 1, 0, 2, 1, 0, 3, 1, 0, 2];
+
+  const extraNeutral = extraNeutralRaw.map((item, i) => {
+    const topic = neutralTopicBuckets[neutralTopicPattern[i % neutralTopicPattern.length]];
+    return {
     channel: i % 3 === 0 ? "email" : "voice",
     transcript: item.transcript,
     sentimentLabel: "neutral",
     sentimentScore: -0.03 + (i % 6) * 0.015,
     baseNeedType: "Information Request",
-    topicClusterId: item.topicClusterId,
-    topicClusterTitle: item.topicClusterTitle,
+    topicClusterId: topic.id,
+    topicClusterTitle: topic.title,
     customerRequest: item.customerRequest,
     actionsTaken: "Տրվել է տեղեկություն կամ հղում ըստ հարցման։",
     status: "resolved",
     nextBestAction: "Ստանալ հաճախորդի վերջնական հաստատումը։",
-  }));
+    };
+  });
 
   return [...base, ...extraPositive, ...extraNeutral];
 }
