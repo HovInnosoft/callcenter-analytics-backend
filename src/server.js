@@ -33,7 +33,23 @@ app.use(
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+function normalizeOrigin(origin) {
+  return String(origin || "").trim().replace(/\/+$/, "");
+}
+
+const allowedOrigins = CORS_ORIGIN.split(",").map((o) => normalizeOrigin(o)).filter(Boolean);
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      const normalizedOrigin = normalizeOrigin(origin);
+      if (allowedOrigins.includes("*")) return callback(null, true);
+      if (allowedOrigins.includes(normalizedOrigin)) return callback(null, true);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "5mb" }));
 app.use(morgan("dev"));
 app.use(rateLimit({ windowMs: 60_000, max: 300 }));
