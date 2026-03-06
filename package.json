@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "seed": "node src/seed.js"
+    "seed": "node src/seed.js",
+    "import:health": "node src/scripts/import-health-insurance-am.js",
+    "bootstrap:health": "npm run seed && npm run import:health"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
