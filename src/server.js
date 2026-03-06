@@ -21,7 +21,7 @@ const app = express();
 
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/omnichannel_mvp";
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:5173";
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "https://dazzling-pavlova-bc0f07.netlify.app";
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "uploads";
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
