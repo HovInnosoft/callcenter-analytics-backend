@@ -21,7 +21,7 @@ const app = express();
 
 const PORT = process.env.PORT || 8080;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/omnichannel_mvp";
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "https://dazzling-pavlova-bc0f07.netlify.app";
+const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "uploads";
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -38,13 +38,23 @@ function normalizeOrigin(origin) {
 }
 
 const allowedOrigins = CORS_ORIGIN.split(",").map((o) => normalizeOrigin(o)).filter(Boolean);
+function isAllowedOrigin(origin) {
+  if (allowedOrigins.includes("*")) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  return allowedOrigins.some((entry) => {
+    const starIdx = entry.indexOf("*.");
+    if (starIdx === -1) return false;
+    const suffix = entry.slice(starIdx + 1); // ".netlify.app"
+    return origin.endsWith(suffix);
+  });
+}
+
 app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
       const normalizedOrigin = normalizeOrigin(origin);
-      if (allowedOrigins.includes("*")) return callback(null, true);
-      if (allowedOrigins.includes(normalizedOrigin)) return callback(null, true);
+      if (isAllowedOrigin(normalizedOrigin)) return callback(null, true);
       return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     credentials: true,
