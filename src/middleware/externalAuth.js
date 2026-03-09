@@ -1,45 +1,37 @@
 import crypto from "crypto";
+import { CallCenter } from "../models/CallCenter.js";
 
-function safeEqual(a, b) {
-  const aBuf = Buffer.from(String(a || ""));
-  const bBuf = Buffer.from(String(b || ""));
-  if (aBuf.length !== bBuf.length) return false;
-  return crypto.timingSafeEqual(aBuf, bBuf);
+function hashApiKey(apiKey) {
+  return crypto.createHash("sha256").update(String(apiKey)).digest("hex");
 }
 
-function parseBasicAuth(header) {
-  if (!header || !header.startsWith("Basic ")) return null;
-  try {
-    const encoded = header.slice(6).trim();
-    const decoded = Buffer.from(encoded, "base64").toString("utf8");
-    const idx = decoded.indexOf(":");
-    if (idx === -1) return null;
-    return {
-      login: decoded.slice(0, idx),
-      password: decoded.slice(idx + 1),
-    };
-  } catch {
-    return null;
-  }
+function parseBearerToken(header) {
+  if (!header || !header.startsWith("Bearer ")) return "";
+  return header.slice(7).trim();
 }
 
-export function requireExternalAuth(req, res, next) {
-  const expectedLogin = process.env.SIP_LOGIN || "";
-  const expectedPassword = process.env.SIP_PASSWORD || "";
+export async function requireExternalAuth(req, res, next) {
+  const headerToken = parseBearerToken(req.headers.authorization || "");
+  const apiKey = (headerToken || req.headers["x-api-key"] || "").toString().trim();
 
-  if (!expectedLogin || !expectedPassword) {
-    return res.status(500).json({ error: "External API auth is not configured" });
+  if (!apiKey) {
+    return res.status(401).json({ error: "Missing API key" });
   }
 
-  const basic = parseBasicAuth(req.headers.authorization || "");
-  const login = basic?.login || req.headers["x-sip-login"] || "";
-  const password = basic?.password || req.headers["x-sip-password"] || "";
+  const callCenter = await CallCenter.findOne({
+    apiKeyHash: hashApiKey(apiKey),
+    active: true,
+  }).lean();
 
-  if (safeEqual(login, expectedLogin) && safeEqual(password, expectedPassword)) {
-    return next();
+  if (!callCenter) {
+    return res.status(401).json({ error: "Invalid API key" });
   }
 
-  res.setHeader("WWW-Authenticate", 'Basic realm="external-audio-api"');
-  return res.status(401).json({ error: "Invalid SIP credentials" });
+  req.externalCallCenter = {
+    id: callCenter.callCenterId,
+    name: callCenter.name,
+    sipLogin: callCenter.sipLogin,
+  };
+  return next();
 }
 
