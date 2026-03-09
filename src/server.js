@@ -16,6 +16,8 @@ import integrityRoutes from "./routes/integrity.js";
 import auditRoutes from "./routes/auditlogs.js";
 import coachingRoutes from "./routes/coaching.js";
 import disputeRoutes from "./routes/disputes.js";
+import externalRoutes from "./routes/external.js";
+import callCenterRoutes from "./routes/callCenters.js";
 
 const app = express();
 
@@ -76,6 +78,8 @@ app.use("/api/integrity", integrityRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/coaching", coachingRoutes);
 app.use("/api/disputes", disputeRoutes);
+app.use("/api/external", externalRoutes);
+app.use("/api/call-centers", callCenterRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);
