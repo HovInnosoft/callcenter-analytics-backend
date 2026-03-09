@@ -1,6 +1,7 @@
 import express from "express";
 import multer from "multer";
 import path from "path";
+import os from "os";
 import fs from "fs/promises";
 import { z } from "zod";
 import { Interaction } from "../models/Interaction.js";
@@ -20,6 +21,35 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
+
+function audioMimeFromSource(sourceUrl = "", contentType = "") {
+  const ct = String(contentType || "").toLowerCase().split(";")[0].trim();
+  if (ct.startsWith("audio/")) return ct;
+  const lower = String(sourceUrl || "").toLowerCase();
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".m4a")) return "audio/mp4";
+  if (lower.endsWith(".ogg")) return "audio/ogg";
+  return "audio/mpeg";
+}
+
+async function downloadAudioToTemp(sourceUrl) {
+  const res = await fetch(sourceUrl);
+  if (!res.ok) throw new Error(`Failed to download audio URL (${res.status})`);
+
+  const mimeType = audioMimeFromSource(sourceUrl, res.headers.get("content-type") || "");
+  const ext = mimeType.includes("wav")
+    ? ".wav"
+    : mimeType.includes("ogg")
+      ? ".ogg"
+      : mimeType.includes("mp4")
+        ? ".m4a"
+        : ".mp3";
+  const tmpPath = path.join(os.tmpdir(), `ingest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
+  const arr = await res.arrayBuffer();
+  const buf = Buffer.from(arr);
+  await fs.writeFile(tmpPath, buf);
+  return { tmpPath, mimeType, size: buf.length };
+}
 
 router.get("/", requireAuth, async (req, res) => {
   const { from, to, channel, sentiment, clusterId, agentId, q, limit = 50, skip = 0 } = req.query;
@@ -370,6 +400,73 @@ router.post(
     await doc.save();
 
     res.json({ ok: true });
+  }
+);
+
+router.post(
+  "/:interactionId/analyze",
+  requireAuth,
+  requireRole(["admin", "supervisor", "qa"]),
+  audit("analyze_interaction", "Interaction", (req) => req.params.interactionId),
+  async (req, res) => {
+    const doc = await Interaction.findOne(applyClientScope(req, { interactionId: req.params.interactionId }));
+    if (!doc) return res.status(404).json({ error: "Not found" });
+
+    let tmpPath = "";
+    let mimeType = "audio/mpeg";
+    let size = 0;
+
+    try {
+      if (doc.media?.audioPath) {
+        const relative = String(doc.media.audioPath).replace(/^\/+/, "");
+        tmpPath = path.join(process.cwd(), relative);
+        const st = await fs.stat(tmpPath);
+        size = st.size || 0;
+        mimeType = audioMimeFromSource(doc.media.audioPath, "");
+      } else if (doc.media?.recordingUrl) {
+        const downloaded = await downloadAudioToTemp(doc.media.recordingUrl);
+        tmpPath = downloaded.tmpPath;
+        mimeType = downloaded.mimeType;
+        size = downloaded.size || 0;
+      } else {
+        return res.status(400).json({ error: "No audio source found for this interaction" });
+      }
+
+      const ai = await analyzeAudioWithGemini(tmpPath, mimeType);
+      const now = new Date();
+      const durationSec = Math.max(doc.durationSec || 0, Math.floor(size / 3200));
+      const nextVersion = (doc.aiVersions?.slice(-1)[0]?.version || 0) + 1;
+
+      doc.endedAt = doc.endedAt || now;
+      doc.durationSec = durationSec;
+      doc.aiVersions.push({
+        version: nextVersion,
+        createdBy: req.user.sub,
+        reason: "manual_analyze",
+        ai: {
+          ...ai,
+          transcriptMasked: maskPII(ai.transcriptMasked || ""),
+        },
+      });
+      doc.integrity = {
+        ...(doc.integrity || {}),
+        updatedAt: now,
+      };
+      await doc.save();
+
+      return res.json({
+        ok: true,
+        interactionId: doc.interactionId,
+        version: nextVersion,
+        gemini: geminiConfig(),
+      });
+    } catch (e) {
+      return res.status(500).json({ error: e.message || "Analyze failed" });
+    } finally {
+      if (tmpPath && doc.media?.recordingUrl) {
+        await fs.unlink(tmpPath).catch(() => {});
+      }
+    }
   }
 );
 

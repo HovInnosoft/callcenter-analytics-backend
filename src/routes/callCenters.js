@@ -92,7 +92,7 @@ router.post(
         createdAt: doc.createdAt,
       },
       apiKey,
-      uploadEndpoint: "/api/external/audio-ingest",
+      uploadEndpoint: "/api/external/audio-upload",
     });
   }
 );

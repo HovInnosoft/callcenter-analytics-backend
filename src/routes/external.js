@@ -22,6 +22,16 @@ function externalInteractionId() {
   return `EXT_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeUrlInput(body) {
+  const single = String(body.audioUrl || "").trim();
+  const list = Array.isArray(body.audioUrls) ? body.audioUrls : [];
+  const out = [
+    ...list.map((u) => String(u || "").trim()).filter(Boolean),
+    ...(single ? [single] : []),
+  ];
+  return out.slice(0, 40);
+}
+
 router.post("/audio-ingest", requireExternalAuth, upload.array("files", 40), async (req, res) => {
   const files = req.files || [];
   if (!files.length) {
@@ -115,6 +125,173 @@ router.post("/audio-ingest", requireExternalAuth, upload.array("files", 40), asy
     processed: files.length,
     succeeded: okCount,
     failed: files.length - okCount,
+    items: out,
+  });
+});
+
+router.post("/audio-url-ingest", requireExternalAuth, async (req, res) => {
+  const callCenter = req.externalCallCenter;
+  const requestedCallCenterId = String(req.body.callCenterId || "").trim();
+  if (requestedCallCenterId && requestedCallCenterId !== callCenter.id) {
+    return res.status(403).json({ error: "callCenterId does not match API key owner" });
+  }
+
+  const urls = normalizeUrlInput(req.body || {});
+  if (!urls.length) {
+    return res.status(400).json({
+      error: "No audio URLs. Use JSON body with 'audioUrl' or 'audioUrls'.",
+    });
+  }
+
+  const startedAtInput = req.body.startedAt ? new Date(req.body.startedAt) : null;
+  const endedAtInput = req.body.endedAt ? new Date(req.body.endedAt) : null;
+  const channel = ["voice", "email", "webchat"].includes(req.body.channel) ? req.body.channel : "voice";
+  const direction = ["inbound", "outbound"].includes(req.body.direction) ? req.body.direction : "inbound";
+
+  const out = [];
+  for (const url of urls) {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      out.push({ url, ok: false, error: "Invalid URL" });
+      continue;
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      out.push({ url, ok: false, error: "Only http/https URLs are allowed" });
+      continue;
+    }
+
+    try {
+      const now = new Date();
+      const startedAt = startedAtInput && !Number.isNaN(startedAtInput.getTime()) ? startedAtInput : new Date(now.getTime() - 5 * 60_000);
+      const endedAt = endedAtInput && !Number.isNaN(endedAtInput.getTime()) ? endedAtInput : now;
+
+      const doc = await Interaction.create({
+        clientId: callCenter.clientId || "default_client",
+        interactionId: externalInteractionId(),
+        channel,
+        direction,
+        startedAt,
+        endedAt,
+        durationSec: 0,
+        agent: {
+          agentId: req.body.agentId || `${callCenter.id}_agent`,
+          agentName: req.body.agentName || "External Agent",
+          supervisor: "",
+          team: req.body.team || callCenter.name,
+          queue: req.body.queue || "External Ingest",
+        },
+        customer: {
+          customerId: req.body.customerId || "",
+          tier: req.body.tier || "",
+          segment: req.body.segment || "",
+        },
+        media: {
+          audioPath: "",
+          recordingUrl: url,
+        },
+        aiVersions: [],
+        crmSnapshots: [{ disposition: "", outcomeTag: callCenter.id, updatedAt: endedAt }],
+        integrity: { status: "new", updatedAt: endedAt },
+      });
+
+      out.push({
+        url,
+        ok: true,
+        interactionId: doc.interactionId,
+        state: "uploaded",
+      });
+    } catch (e) {
+      out.push({ url, ok: false, error: e.message || "Failed to queue URL" });
+    }
+  }
+
+  const okCount = out.filter((x) => x.ok).length;
+  return res.status(okCount ? 201 : 400).json({
+    ok: okCount > 0,
+    queued: okCount,
+    failed: out.length - okCount,
+    items: out,
+  });
+});
+
+router.post("/audio-upload", requireExternalAuth, upload.array("files", 40), async (req, res) => {
+  const files = req.files || [];
+  if (!files.length) {
+    return res.status(400).json({ error: "No files uploaded. Use multipart/form-data with field name 'files'." });
+  }
+
+  const callCenter = req.externalCallCenter;
+  const requestedCallCenterId = String(req.body.callCenterId || "").trim();
+  if (requestedCallCenterId && requestedCallCenterId !== callCenter.id) {
+    return res.status(403).json({ error: "callCenterId does not match API key owner" });
+  }
+
+  const startedAtInput = req.body.startedAt ? new Date(req.body.startedAt) : null;
+  const endedAtInput = req.body.endedAt ? new Date(req.body.endedAt) : null;
+  const channel = ["voice", "email", "webchat"].includes(req.body.channel) ? req.body.channel : "voice";
+  const direction = ["inbound", "outbound"].includes(req.body.direction) ? req.body.direction : "inbound";
+
+  const out = [];
+  for (const file of files) {
+    const lower = (file.originalname || "").toLowerCase();
+    const audioLike = file.mimetype.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".ogg"].some((ext) => lower.endsWith(ext));
+    if (!audioLike) {
+      out.push({ filename: file.originalname, ok: false, error: "Unsupported file type (audio only)" });
+      continue;
+    }
+
+    try {
+      const now = new Date();
+      const startedAt = startedAtInput && !Number.isNaN(startedAtInput.getTime()) ? startedAtInput : new Date(now.getTime() - 5 * 60_000);
+      const endedAt = endedAtInput && !Number.isNaN(endedAtInput.getTime()) ? endedAtInput : now;
+
+      const doc = await Interaction.create({
+        clientId: callCenter.clientId || "default_client",
+        interactionId: externalInteractionId(),
+        channel,
+        direction,
+        startedAt,
+        endedAt,
+        durationSec: Math.max(30, Math.floor((file.size || 0) / 3200)),
+        agent: {
+          agentId: req.body.agentId || `${callCenter.id}_agent`,
+          agentName: req.body.agentName || "External Agent",
+          supervisor: "",
+          team: req.body.team || callCenter.name,
+          queue: req.body.queue || "External Ingest",
+        },
+        customer: {
+          customerId: req.body.customerId || "",
+          tier: req.body.tier || "",
+          segment: req.body.segment || "",
+        },
+        media: {
+          audioPath: `/${uploadDir}/${file.filename}`,
+          recordingUrl: "",
+        },
+        aiVersions: [],
+        crmSnapshots: [{ disposition: "", outcomeTag: callCenter.id, updatedAt: endedAt }],
+        integrity: { status: "new", updatedAt: endedAt },
+      });
+
+      out.push({
+        filename: file.originalname,
+        ok: true,
+        interactionId: doc.interactionId,
+        state: "uploaded",
+      });
+    } catch (e) {
+      out.push({ filename: file.originalname, ok: false, error: e.message || "Failed to queue file" });
+    }
+  }
+
+  const okCount = out.filter((x) => x.ok).length;
+  return res.status(okCount ? 201 : 400).json({
+    ok: okCount > 0,
+    queued: okCount,
+    failed: out.length - okCount,
     items: out,
   });
 });
