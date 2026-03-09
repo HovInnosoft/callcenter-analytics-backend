@@ -96,4 +96,16 @@ router.post(
   }
 );
 
+router.delete(
+  "/:callCenterId",
+  requireAuth,
+  requireRole(["admin"]),
+  audit("delete_call_center", "CallCenter", (req) => req.params.callCenterId),
+  async (req, res) => {
+    const doc = await CallCenter.findOneAndDelete({ callCenterId: req.params.callCenterId });
+    if (!doc) return res.status(404).json({ error: "Call center not found" });
+    return res.json({ ok: true, deletedId: req.params.callCenterId });
+  }
+);
+
 export default router;
