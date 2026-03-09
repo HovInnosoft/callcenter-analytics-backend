@@ -17,7 +17,17 @@ export function requireAuth(req, res, next) {
 export function requireRole(roles = []) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    if (req.user.role === "superadmin") return next();
     if (roles.length === 0 || roles.includes(req.user.role)) return next();
     return res.status(403).json({ error: "Forbidden" });
   };
+}
+
+export function scopedClientId(req) {
+  return req.user?.clientId || "default_client";
+}
+
+export function applyClientScope(req, filter = {}, field = "clientId") {
+  if (req.user?.role === "superadmin") return { ...filter };
+  return { ...filter, [field]: scopedClientId(req) };
 }

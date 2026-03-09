@@ -2,16 +2,17 @@ import express from "express";
 import { z } from "zod";
 import { Dispute } from "../models/Dispute.js";
 import { Interaction } from "../models/Interaction.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { applyClientScope, requireAuth, requireRole, scopedClientId } from "../middleware/auth.js";
 import { audit } from "../middleware/audit.js";
 
 const router = express.Router();
 
 router.get("/", requireAuth, async (req, res) => {
   const { status, limit = 200 } = req.query;
-  const filter = {};
+  let filter = {};
   if (status) filter.status = status;
   if (req.user.role === "agent") filter.agentId = req.user.email;
+  filter = applyClientScope(req, filter);
 
   const items = await Dispute.find(filter)
     .sort({ createdAt: -1 })
@@ -36,7 +37,7 @@ router.post(
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
     const d = parsed.data;
-    const interaction = await Interaction.findOne({ interactionId: d.interactionId }).lean();
+    const interaction = await Interaction.findOne(applyClientScope(req, { interactionId: d.interactionId })).lean();
     if (!interaction) return res.status(400).json({ error: "interactionId not found" });
 
     if (interaction.agent?.agentId !== req.user.email) {
@@ -44,6 +45,7 @@ router.post(
     }
 
     const doc = await Dispute.create({
+      clientId: scopedClientId(req),
       interactionId: d.interactionId,
       agentId: req.user.email,
       agentName: req.user.name || "",
@@ -79,7 +81,7 @@ router.patch(
       patch.resolvedAt = new Date();
     }
 
-    const doc = await Dispute.findByIdAndUpdate(req.params.id, patch, { new: true });
+    const doc = await Dispute.findOneAndUpdate(applyClientScope(req, { _id: req.params.id }), patch, { new: true });
     if (!doc) return res.status(404).json({ error: "Not found" });
 
     res.json({ ok: true });

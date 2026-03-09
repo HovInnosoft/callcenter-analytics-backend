@@ -18,6 +18,7 @@ import coachingRoutes from "./routes/coaching.js";
 import disputeRoutes from "./routes/disputes.js";
 import externalRoutes from "./routes/external.js";
 import callCenterRoutes from "./routes/callCenters.js";
+import superadminRoutes from "./routes/superadmin.js";
 
 const app = express();
 
@@ -80,6 +81,7 @@ app.use("/api/coaching", coachingRoutes);
 app.use("/api/disputes", disputeRoutes);
 app.use("/api/external", externalRoutes);
 app.use("/api/call-centers", callCenterRoutes);
+app.use("/api/superadmin", superadminRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

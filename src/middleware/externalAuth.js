@@ -28,10 +28,10 @@ export async function requireExternalAuth(req, res, next) {
   }
 
   req.externalCallCenter = {
+    clientId: callCenter.clientId || "default_client",
     id: callCenter.callCenterId,
     name: callCenter.name,
     sipLogin: callCenter.sipLogin,
   };
   return next();
 }
-

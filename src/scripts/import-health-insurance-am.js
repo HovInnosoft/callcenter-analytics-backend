@@ -19,6 +19,7 @@ function makeInteraction(item, idx) {
   const endedAt = new Date(startedAt.getTime() + durationSec * 1000);
 
   return {
+    clientId: "default_client",
     interactionId: toInteractionId("HI_AM", idx),
     channel: item.channel,
     direction: "inbound",

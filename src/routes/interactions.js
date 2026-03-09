@@ -5,7 +5,7 @@ import fs from "fs/promises";
 import { z } from "zod";
 import { Interaction } from "../models/Interaction.js";
 import { maskPII } from "../utils/pii.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { applyClientScope, requireAuth, requireRole, scopedClientId } from "../middleware/auth.js";
 import { audit } from "../middleware/audit.js";
 import { analyzeAudioWithGemini, analyzeTextWithGemini, geminiConfig } from "../utils/gemini.js";
 
@@ -24,7 +24,7 @@ const upload = multer({ storage });
 router.get("/", requireAuth, async (req, res) => {
   const { from, to, channel, sentiment, clusterId, agentId, q, limit = 50, skip = 0 } = req.query;
 
-  const filter = {};
+  let filter = {};
   if (from || to) {
     filter.startedAt = {};
     if (from) filter.startedAt.$gte = new Date(from);
@@ -32,6 +32,7 @@ router.get("/", requireAuth, async (req, res) => {
   }
   if (channel) filter.channel = channel;
   if (agentId) filter["agent.agentId"] = agentId;
+  filter = applyClientScope(req, filter);
 
   // Search by interactionId or transcript keyword in latest ai version
   if (q) {
@@ -118,6 +119,7 @@ router.post(
           : await analyzeAudioWithGemini(file.path, file.mimetype || "audio/mpeg");
 
         const doc = await Interaction.create({
+          clientId: scopedClientId(req),
           interactionId: `ING_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           channel: textLike ? "email" : "voice",
           direction: "inbound",
@@ -171,7 +173,7 @@ router.post(
 );
 
 router.get("/:interactionId", requireAuth, async (req, res) => {
-  const doc = await Interaction.findOne({ interactionId: req.params.interactionId }).lean();
+  const doc = await Interaction.findOne(applyClientScope(req, { interactionId: req.params.interactionId })).lean();
   if (!doc) return res.status(404).json({ error: "Not found" });
 
   // RBAC for agent
@@ -254,6 +256,7 @@ router.post(
     };
 
     const doc = await Interaction.create({
+      clientId: scopedClientId(req),
       interactionId: d.interactionId,
       channel: d.channel,
       direction: d.direction,
@@ -311,7 +314,7 @@ router.post(
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const doc = await Interaction.findOne({ interactionId: req.params.interactionId });
+    const doc = await Interaction.findOne(applyClientScope(req, { interactionId: req.params.interactionId }));
     if (!doc) return res.status(404).json({ error: "Not found" });
 
     const latest = doc.aiVersions.slice(-1)[0]?.ai;
@@ -360,7 +363,7 @@ router.post(
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const doc = await Interaction.findOne({ interactionId: req.params.interactionId });
+    const doc = await Interaction.findOne(applyClientScope(req, { interactionId: req.params.interactionId }));
     if (!doc) return res.status(404).json({ error: "Not found" });
 
     doc.crmSnapshots.push({ disposition: parsed.data.disposition, outcomeTag: parsed.data.outcomeTag, updatedAt: new Date() });

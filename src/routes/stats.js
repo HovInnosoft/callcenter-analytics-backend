@@ -1,5 +1,5 @@
 import express from "express";
-import { requireAuth } from "../middleware/auth.js";
+import { applyClientScope, requireAuth } from "../middleware/auth.js";
 import { Interaction } from "../models/Interaction.js";
 
 const router = express.Router();
@@ -10,13 +10,14 @@ function latestAi(doc) {
 
 router.get("/executive-overview", requireAuth, async (req, res) => {
   const { from, to, channel, sentiment: sentimentFilter } = req.query;
-  const filter = {};
+  let filter = {};
   if (from || to) {
     filter.startedAt = {};
     if (from) filter.startedAt.$gte = new Date(from);
     if (to) filter.startedAt.$lte = new Date(to);
   }
   if (channel) filter.channel = channel;
+  filter = applyClientScope(req, filter);
 
   let docs = await Interaction.find(filter).lean();
   if (sentimentFilter) docs = docs.filter((d) => latestAi(d)?.sentimentLabel === sentimentFilter);
@@ -99,13 +100,14 @@ router.get("/executive-overview", requireAuth, async (req, res) => {
 
 router.get("/team-quality", requireAuth, async (req, res) => {
   const { from, to, channel, sentiment: sentimentFilter } = req.query;
-  const filter = {};
+  let filter = {};
   if (from || to) {
     filter.startedAt = {};
     if (from) filter.startedAt.$gte = new Date(from);
     if (to) filter.startedAt.$lte = new Date(to);
   }
   if (channel) filter.channel = channel;
+  filter = applyClientScope(req, filter);
 
   let docs = await Interaction.find(filter).lean();
   if (sentimentFilter) docs = docs.filter((d) => latestAi(d)?.sentimentLabel === sentimentFilter);

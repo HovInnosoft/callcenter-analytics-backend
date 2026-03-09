@@ -7,6 +7,7 @@ export function audit(action, entityType, entityIdFn = () => "") {
         if (res.statusCode >= 400) return;
         const entityId = typeof entityIdFn === "function" ? entityIdFn(req, res) : "";
         await AuditLog.create({
+          clientId: req.user?.clientId || "default_client",
           actorUserId: req.user?.sub,
           actorEmail: req.user?.email || "",
           action,

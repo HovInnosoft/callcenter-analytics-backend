@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const DisputeSchema = new mongoose.Schema(
   {
+    clientId: { type: String, required: true, index: true, default: "default_client" },
     interactionId: { type: String, required: true, index: true },
     agentId: { type: String, required: true, index: true },
     agentName: { type: String, default: "" },

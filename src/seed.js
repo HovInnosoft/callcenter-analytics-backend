@@ -2,11 +2,13 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 import { User } from "./models/User.js";
+import { Client } from "./models/Client.js";
 import { Interaction } from "./models/Interaction.js";
 import { Alert } from "./models/Alert.js";
 import { CoachingItem } from "./models/CoachingItem.js";
 import { Dispute } from "./models/Dispute.js";
 import { AuditLog } from "./models/AuditLog.js";
+import { CallCenter } from "./models/CallCenter.js";
 
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -49,22 +51,32 @@ async function run() {
   await mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/omnichannel_mvp");
 
   await Promise.all([
+    Client.deleteMany({}),
     User.deleteMany({}),
     Interaction.deleteMany({}),
     Alert.deleteMany({}),
     CoachingItem.deleteMany({}),
     Dispute.deleteMany({}),
     AuditLog.deleteMany({}),
+    CallCenter.deleteMany({}),
   ]);
 
+  await Client.create({
+    clientId: "default_client",
+    name: "Default Client",
+    active: true,
+    createdByEmail: "seed-script",
+  });
+
   const users = [
-    { email: "admin@example.com", name: "Admin", role: "admin", team: "General", password: "admin1234" },
-    { email: "exec@example.com", name: "Executive", role: "executive", team: "General", password: "exec1234" },
-    { email: "sup@example.com", name: "Supervisor", role: "supervisor", team: "Team A", password: "sup1234" },
-    { email: "qa@example.com", name: "QA Analyst", role: "qa", team: "Team A", password: "qa1234" },
-    { email: "agent1@example.com", name: "Agent 1", role: "agent", team: "Team A", password: "agent1234" },
-    { email: "agent2@example.com", name: "Agent 2", role: "agent", team: "Team B", password: "agent1234" },
-    { email: "agent3@example.com", name: "Agent 3", role: "agent", team: "Team A", password: "agent1234" },
+    { email: "superadmin@example.com", name: "Super Admin", role: "superadmin", team: "Platform", password: "super1234", clientId: "default_client" },
+    { email: "admin@example.com", name: "Admin", role: "admin", team: "General", password: "admin1234", clientId: "default_client" },
+    { email: "exec@example.com", name: "Executive", role: "executive", team: "General", password: "exec1234", clientId: "default_client" },
+    { email: "sup@example.com", name: "Supervisor", role: "supervisor", team: "Team A", password: "sup1234", clientId: "default_client" },
+    { email: "qa@example.com", name: "QA Analyst", role: "qa", team: "Team A", password: "qa1234", clientId: "default_client" },
+    { email: "agent1@example.com", name: "Agent 1", role: "agent", team: "Team A", password: "agent1234", clientId: "default_client" },
+    { email: "agent2@example.com", name: "Agent 2", role: "agent", team: "Team B", password: "agent1234", clientId: "default_client" },
+    { email: "agent3@example.com", name: "Agent 3", role: "agent", team: "Team A", password: "agent1234", clientId: "default_client" },
   ];
 
   const createdUsers = [];
@@ -75,6 +87,7 @@ async function run() {
       name: u.name,
       role: u.role,
       team: u.team,
+      clientId: u.clientId || "default_client",
       passwordHash,
     });
     createdUsers.push(doc);
@@ -208,6 +221,7 @@ async function run() {
     }
 
     const interaction = {
+      clientId: "default_client",
       interactionId: randId("INT"),
       channel,
       direction,
@@ -263,6 +277,7 @@ async function run() {
 
   for (const it of sample(highMismatchInteractions, 10)) {
     alerts.push({
+      clientId: "default_client",
       type: "integrity_mismatch",
       severity: pick(["medium", "high", "critical"]),
       title: `Integrity mismatch detected for ${it.interactionId}`,
@@ -276,6 +291,7 @@ async function run() {
 
   for (const it of sample(insertedInteractions, 8)) {
     alerts.push({
+      clientId: "default_client",
       type: "compliance_fail",
       severity: pick(["medium", "high"]),
       title: `ID verification failed in ${it.interactionId}`,
@@ -289,6 +305,7 @@ async function run() {
 
   for (const c of clusters.slice(0, 4)) {
     alerts.push({
+      clientId: "default_client",
       type: "crisis_spike",
       severity: pick(["high", "critical"]),
       title: `Cluster spike: ${c.title}`,
@@ -311,6 +328,7 @@ async function run() {
     const status = pick(["new", "acknowledged", "completed", "disputed", "new"]);
 
     const doc = {
+      clientId: "default_client",
       interactionId: it.interactionId,
       assignedToAgentId: assignedAgentId,
       assignedToAgentName: assignedAgentName,
@@ -341,6 +359,7 @@ async function run() {
   for (const it of disputesPool) {
     const status = pick(["new", "under_review", "resolved", "rejected"]);
     const d = {
+      clientId: "default_client",
       interactionId: it.interactionId,
       agentId: it.agent.agentId,
       agentName: it.agent.agentName,
@@ -384,6 +403,7 @@ async function run() {
     const actor = pick(createdUsers);
     const entityType = pick(entityTypes);
     auditLogs.push({
+      clientId: "default_client",
       actorUserId: actor._id,
       actorEmail: actor.email,
       action: pick(auditActions),
@@ -425,6 +445,7 @@ async function run() {
   console.log(`Disputes: ${counts[4]}`);
   console.log(`Audit logs: ${counts[5]}`);
   console.log("Demo users:");
+  console.log("superadmin@example.com / super1234");
   console.log("admin@example.com / admin1234");
   console.log("exec@example.com / exec1234");
   console.log("sup@example.com / sup1234");

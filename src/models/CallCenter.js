@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 const CallCenterSchema = new mongoose.Schema(
   {
+    clientId: { type: String, required: true, index: true, default: "default_client" },
     callCenterId: { type: String, required: true, unique: true, index: true },
     name: { type: String, required: true },
     description: { type: String, default: "" },

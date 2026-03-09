@@ -6,12 +6,13 @@ const UserSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
     role: {
       type: String,
-      enum: ["admin", "executive", "supervisor", "qa", "agent"],
+      enum: ["superadmin", "admin", "executive", "supervisor", "qa", "agent"],
       required: true,
       index: true,
     },
     name: { type: String, required: true },
     team: { type: String, default: "General" },
+    clientId: { type: String, default: "default_client", index: true },
   },
   { timestamps: true }
 );

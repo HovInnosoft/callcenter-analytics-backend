@@ -3,7 +3,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { CallCenter } from "../models/CallCenter.js";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { applyClientScope, requireAuth, requireRole, scopedClientId } from "../middleware/auth.js";
 import { audit } from "../middleware/audit.js";
 
 const router = express.Router();
@@ -21,7 +21,7 @@ function hashApiKey(apiKey) {
 }
 
 router.get("/", requireAuth, requireRole(["admin", "supervisor", "qa"]), async (req, res) => {
-  const items = await CallCenter.find({}).sort({ createdAt: -1 }).lean();
+  const items = await CallCenter.find(applyClientScope(req, {})).sort({ createdAt: -1 }).lean();
   res.json({
     items: items.map((d) => ({
       id: d.callCenterId,
@@ -70,6 +70,7 @@ router.post(
     }
 
     const doc = await CallCenter.create({
+      clientId: scopedClientId(req),
       callCenterId,
       name: d.name,
       description: d.description,
@@ -102,7 +103,7 @@ router.delete(
   requireRole(["admin"]),
   audit("delete_call_center", "CallCenter", (req) => req.params.callCenterId),
   async (req, res) => {
-    const doc = await CallCenter.findOneAndDelete({ callCenterId: req.params.callCenterId });
+    const doc = await CallCenter.findOneAndDelete(applyClientScope(req, { callCenterId: req.params.callCenterId }));
     if (!doc) return res.status(404).json({ error: "Call center not found" });
     return res.json({ ok: true, deletedId: req.params.callCenterId });
   }

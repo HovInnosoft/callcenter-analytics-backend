@@ -1,6 +1,6 @@
 import express from "express";
 import { z } from "zod";
-import { requireAuth, requireRole } from "../middleware/auth.js";
+import { applyClientScope, requireAuth, requireRole } from "../middleware/auth.js";
 import { Interaction } from "../models/Interaction.js";
 import { audit } from "../middleware/audit.js";
 
@@ -37,12 +37,13 @@ function mismatchScore(ai, crm) {
 router.get("/", requireAuth, requireRole(["admin","supervisor","qa"]), async (req, res) => {
   const { from, to, minScore = 40, limit = 100 } = req.query;
 
-  const filter = {};
+  let filter = {};
   if (from || to) {
     filter.startedAt = {};
     if (from) filter.startedAt.$gte = new Date(from);
     if (to) filter.startedAt.$lte = new Date(to);
   }
+  filter = applyClientScope(req, filter);
 
   const docs = await Interaction.find(filter).sort({ startedAt: -1 }).limit(Math.min(Number(limit), 500)).lean();
   const rows = [];
@@ -86,7 +87,7 @@ router.patch(
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
     const doc = await Interaction.findOneAndUpdate(
-      { interactionId: req.params.interactionId },
+      applyClientScope(req, { interactionId: req.params.interactionId }),
       {
         $set: {
           "integrity.assignedQa": parsed.data.assignedQa,
@@ -114,7 +115,7 @@ router.patch(
 
     const now = new Date();
     const doc = await Interaction.findOneAndUpdate(
-      { interactionId: req.params.interactionId },
+      applyClientScope(req, { interactionId: req.params.interactionId }),
       {
         $set: {
           "integrity.status": "resolved",

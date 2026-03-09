@@ -58,6 +58,7 @@ router.post("/audio-ingest", requireExternalAuth, upload.array("files", 40), asy
       const ai = await analyzeAudioWithGemini(file.path, file.mimetype || "audio/mpeg");
 
       const doc = await Interaction.create({
+        clientId: callCenter.clientId || "default_client",
         interactionId: externalInteractionId(),
         channel,
         direction,

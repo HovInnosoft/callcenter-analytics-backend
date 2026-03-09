@@ -59,6 +59,7 @@ const CrmSnapshotSchema = new mongoose.Schema(
 
 const InteractionSchema = new mongoose.Schema(
   {
+    clientId: { type: String, required: true, index: true, default: "default_client" },
     interactionId: { type: String, required: true, unique: true, index: true },
     channel: { type: String, enum: ["voice", "email", "webchat"], required: true, index: true },
     direction: { type: String, enum: ["inbound", "outbound"], default: "inbound" },
