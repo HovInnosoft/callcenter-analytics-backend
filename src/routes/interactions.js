@@ -22,6 +22,41 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+function isAudioFile(file) {
+  const lower = (file.originalname || "").toLowerCase();
+  return file.mimetype.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".ogg"].some((ext) => lower.endsWith(ext));
+}
+
+async function createUploadedInteraction({
+  clientId,
+  interactionId,
+  channel,
+  direction,
+  startedAt,
+  endedAt,
+  durationSec,
+  agent,
+  customer,
+  media,
+  outcomeTag = "",
+}) {
+  return Interaction.create({
+    clientId,
+    interactionId,
+    channel,
+    direction,
+    startedAt,
+    endedAt,
+    durationSec,
+    agent,
+    customer,
+    media,
+    aiVersions: [],
+    crmSnapshots: [{ disposition: "", outcomeTag, updatedAt: endedAt }],
+    integrity: { status: "new", updatedAt: endedAt },
+  });
+}
+
 function audioMimeFromSource(sourceUrl = "", contentType = "") {
   const ct = String(contentType || "").toLowerCase().split(";")[0].trim();
   if (ct.startsWith("audio/")) return ct;
@@ -121,6 +156,66 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 router.post(
+  "/batch-upload",
+  requireAuth,
+  requireRole(["admin", "supervisor", "qa"]),
+  audit("batch_upload", "Interaction", () => ""),
+  upload.array("files", 40),
+  async (req, res) => {
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ error: "No files uploaded. Use field name 'files'." });
+
+    const out = [];
+    for (const file of files) {
+      if (!isAudioFile(file)) {
+        out.push({ filename: file.originalname, ok: false, error: "Unsupported file type (audio only)" });
+        continue;
+      }
+
+      try {
+        const now = new Date();
+        const startedAt = new Date(now.getTime() - 5 * 60_000);
+        const doc = await createUploadedInteraction({
+          clientId: scopedClientId(req),
+          interactionId: `UPL_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          channel: "voice",
+          direction: "inbound",
+          startedAt,
+          endedAt: now,
+          durationSec: Math.max(30, Math.floor((file.size || 0) / 3200)),
+          agent: {
+            agentId: req.user.email,
+            agentName: req.user.name || req.user.email,
+            team: req.user.team || "",
+            queue: "Uploaded",
+          },
+          customer: { customerId: "", tier: "", segment: "" },
+          media: { audioPath: `/${uploadDir}/${file.filename}`, recordingUrl: "" },
+        });
+
+        out.push({
+          filename: file.originalname,
+          ok: true,
+          interactionId: doc.interactionId,
+          state: "uploaded",
+        });
+      } catch (e) {
+        out.push({ filename: file.originalname, ok: false, error: e.message || "Failed to upload audio" });
+      }
+    }
+
+    const okCount = out.filter((x) => x.ok).length;
+    return res.status(okCount ? 201 : 400).json({
+      ok: okCount > 0,
+      processed: files.length,
+      uploaded: okCount,
+      failed: files.length - okCount,
+      items: out,
+    });
+  }
+);
+
+router.post(
   "/batch-ingest",
   requireAuth,
   requireRole(["admin", "supervisor", "qa"]),
@@ -134,7 +229,7 @@ router.post(
     for (const file of files) {
       const lower = (file.originalname || "").toLowerCase();
       const textLike = file.mimetype.startsWith("text/") || lower.endsWith(".txt");
-      const audioLike = file.mimetype.startsWith("audio/") || [".mp3", ".wav", ".m4a", ".ogg"].some((ext) => lower.endsWith(ext));
+      const audioLike = isAudioFile(file);
       if (!textLike && !audioLike) {
         out.push({ filename: file.originalname, ok: false, error: "Unsupported file type" });
         continue;

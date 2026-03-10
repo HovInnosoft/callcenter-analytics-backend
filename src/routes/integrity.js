@@ -35,13 +35,18 @@ function mismatchScore(ai, crm) {
 }
 
 router.get("/", requireAuth, requireRole(["admin","supervisor","qa"]), async (req, res) => {
-  const { from, to, minScore = 40, limit = 100 } = req.query;
+  const { from, to, minScore = 40, limit = 100, includePending = "false", integrationOnly = "false" } = req.query;
+  const includePendingItems = String(includePending).toLowerCase() === "true";
+  const onlyIntegrationItems = String(integrationOnly).toLowerCase() === "true";
 
   let filter = {};
   if (from || to) {
     filter.startedAt = {};
     if (from) filter.startedAt.$gte = new Date(from);
     if (to) filter.startedAt.$lte = new Date(to);
+  }
+  if (onlyIntegrationItems) {
+    filter.interactionId = { $regex: /^(ING|UPL|EXT)_/ };
   }
   filter = applyClientScope(req, filter);
 
@@ -51,10 +56,52 @@ router.get("/", requireAuth, requireRole(["admin","supervisor","qa"]), async (re
   for (const d of docs) {
     const ai = latestAi(d);
     const crm = latestCrm(d);
-    if (!ai || !crm) continue;
+    const hasAudioSource = Boolean(d.media?.audioPath || d.media?.recordingUrl);
+
+    if (!ai) {
+      if (!includePendingItems || !hasAudioSource) continue;
+      rows.push({
+        interactionId: d.interactionId,
+        startedAt: d.startedAt,
+        agentId: d.agent?.agentId || "",
+        agentName: d.agent?.agentName || "",
+        aiStatus: "pending_analysis",
+        crmDisposition: crm?.disposition || "",
+        aiSentiment: "",
+        sentimentMismatch: false,
+        score: 0,
+        status: d.integrity?.status || "new",
+        assignedQa: d.integrity?.assignedQa || "",
+        resolvedReason: d.integrity?.resolvedReason || "",
+        canAnalyze: hasAudioSource,
+        hasAi: false,
+      });
+      continue;
+    }
+
+    if (!crm) {
+      if (!includePendingItems) continue;
+      rows.push({
+        interactionId: d.interactionId,
+        startedAt: d.startedAt,
+        agentId: d.agent?.agentId || "",
+        agentName: d.agent?.agentName || "",
+        aiStatus: ai.summary?.status || "",
+        crmDisposition: "",
+        aiSentiment: ai.sentimentLabel || "",
+        sentimentMismatch: false,
+        score: 0,
+        status: d.integrity?.status || "new",
+        assignedQa: d.integrity?.assignedQa || "",
+        resolvedReason: d.integrity?.resolvedReason || "",
+        canAnalyze: hasAudioSource,
+        hasAi: true,
+      });
+      continue;
+    }
 
     const score = mismatchScore(ai, crm);
-    if (score < Number(minScore)) continue;
+    if (!includePendingItems && score < Number(minScore)) continue;
 
     rows.push({
       interactionId: d.interactionId,
@@ -69,10 +116,15 @@ router.get("/", requireAuth, requireRole(["admin","supervisor","qa"]), async (re
       status: d.integrity?.status || "new",
       assignedQa: d.integrity?.assignedQa || "",
       resolvedReason: d.integrity?.resolvedReason || "",
+      canAnalyze: hasAudioSource,
+      hasAi: true,
     });
   }
 
-  rows.sort((a,b) => b.score - a.score);
+  rows.sort((a,b) => {
+    if (a.hasAi !== b.hasAi) return a.hasAi ? 1 : -1;
+    return b.score - a.score;
+  });
   res.json({ items: rows });
 });
 
