@@ -35,6 +35,22 @@ This does:
 1. `npm run seed` -> creates users (admin/exec/sup/qa/agents, etc.)
 2. `npm run import:health` -> replaces interactions with Armenian health-insurance dataset
 
+If production already has data and you only need the default accounts, run this instead:
+
+```bash
+npm run seed:users
+```
+
+`seed:users` is idempotent. It creates the default client if needed, inserts only missing users, and does not delete existing data.
+
+If you cannot run commands inside Railway, run the seed from your local terminal against the Railway Mongo URL:
+
+```bash
+MONGO_URI='<RAILWAY_MONGO_URL>' ./scripts/seed-users-remote.sh
+```
+
+That command connects from your machine to the production database and runs the same idempotent user bootstrap.
+
 ## 4) Make Railway DB exactly match local DB (optional, exact clone)
 
 If you need exact parity (same IDs/timestamps as local), copy DB with Mongo tools:
