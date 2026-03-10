@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "seed": "node src/seed.js",
     "seed:users": "node src/seed-users.js",
+    "reset:data:keep-users": "node src/reset-data-keep-users.js",
     "import:health": "node src/scripts/import-health-insurance-am.js",
     "bootstrap:health": "npm run seed && npm run import:health"
   },
