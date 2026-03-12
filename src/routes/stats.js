@@ -8,6 +8,71 @@ function latestAi(doc) {
   return (doc.aiVersions || []).slice(-1)[0]?.ai || null;
 }
 
+function extractTurns(transcript = "") {
+  const lines = String(transcript || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return lines.map((line) => {
+    const cleaned = line.replace(/^\d{1,2}:\d{2}\s+/, "");
+    const match = cleaned.match(/^([^:-]+)\s*[-:]\s*(.+)$/);
+    if (!match) return { speaker: "unknown", text: cleaned };
+    return {
+      speaker: match[1].trim().toLowerCase(),
+      text: match[2].trim(),
+    };
+  });
+}
+
+function speakerTexts(ai) {
+  const turns = extractTurns(ai?.transcriptMasked);
+  const customerAliases = ["client", "customer", "user", "caller", "հաճախորդ"];
+  const operatorAliases = ["operator", "agent", "advisor", "representative", "օպերատոր"];
+
+  const pickText = (aliases) =>
+    turns
+      .filter((turn) => aliases.some((alias) => turn.speaker.includes(alias)))
+      .map((turn) => turn.text);
+
+  return {
+    customer: pickText(customerAliases),
+    operator: pickText(operatorAliases),
+  };
+}
+
+function normalizeKey(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0531-\u0587\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function clipPhrase(value = "", fallback = "Unknown") {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  const compact = text.replace(/\s+/g, " ");
+  return compact.length > 72 ? `${compact.slice(0, 72).trim()}...` : compact;
+}
+
+function upsertDriver(map, rawTitle, sampleQuote, sentimentScore) {
+  const title = clipPhrase(rawTitle, "Unknown");
+  const key = normalizeKey(title) || "unknown";
+  const prev = map.get(key) || { title, volume: 0, sentimentSum: 0, sampleQuote: "" };
+  prev.volume += 1;
+  prev.sentimentSum += sentimentScore || 0;
+  if (!prev.sampleQuote && sampleQuote) prev.sampleQuote = clipPhrase(sampleQuote, "");
+  map.set(key, prev);
+}
+
+function topDrivers(map) {
+  return Array.from(map.values())
+    .map((entry) => ({ ...entry, avgSentiment: entry.volume ? entry.sentimentSum / entry.volume : 0 }))
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 3);
+}
+
 router.get("/executive-overview", requireAuth, async (req, res) => {
   const { from, to, channel, sentiment: sentimentFilter } = req.query;
   let filter = {};
@@ -31,6 +96,11 @@ router.get("/executive-overview", requireAuth, async (req, res) => {
     positive: new Map(),
     neutral: new Map(),
     negative: new Map(),
+  };
+  const splitDrivers = {
+    positive: { customer: new Map(), operator: new Map() },
+    neutral: { customer: new Map(), operator: new Map() },
+    negative: { customer: new Map(), operator: new Map() },
   };
   const unresolved = { resolved: 0, unresolved: 0, follow_up: 0, escalated: 0 };
 
@@ -74,6 +144,22 @@ router.get("/executive-overview", requireAuth, async (req, res) => {
         sentimentMap.set(sentimentKey, prevSentiment);
       }
 
+      if (splitDrivers[ai.sentimentLabel]) {
+        const transcriptBySpeaker = speakerTexts(ai);
+        upsertDriver(
+          splitDrivers[ai.sentimentLabel].customer,
+          ai.summary?.customerRequest || transcriptBySpeaker.customer[0] || ai.topicClusterTitle,
+          transcriptBySpeaker.customer[0] || ai.summary?.customerRequest || "",
+          ai.sentimentScore
+        );
+        upsertDriver(
+          splitDrivers[ai.sentimentLabel].operator,
+          ai.summary?.actionsTaken || ai.summary?.nextBestAction || transcriptBySpeaker.operator[0] || ai.topicClusterTitle,
+          transcriptBySpeaker.operator[0] || ai.summary?.actionsTaken || "",
+          ai.sentimentScore
+        );
+      }
+
       const st = ai.summary?.status || "unresolved";
       unresolved[st] = (unresolved[st] || 0) + 1;
     }
@@ -87,10 +173,11 @@ router.get("/executive-overview", requireAuth, async (req, res) => {
   const topSentimentDrivers = Object.fromEntries(
     Object.entries(sentimentClusters).map(([label, map]) => [
       label,
-      Array.from(map.values())
-        .map((c) => ({ ...c, avgSentiment: c.volume ? c.sentimentSum / c.volume : 0 }))
-        .sort((a, b) => b.volume - a.volume)
-        .slice(0, 3),
+      {
+        overall: topDrivers(map),
+        customer: topDrivers(splitDrivers[label].customer),
+        operator: topDrivers(splitDrivers[label].operator),
+      },
     ])
   );
 
