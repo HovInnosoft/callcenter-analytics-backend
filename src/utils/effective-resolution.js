@@ -25,17 +25,6 @@ export function inferEffectiveSummary(ai = {}, crm = {}) {
     };
   }
 
-  const needsFollowUp = includesAny(`${nextBestAction} ${actionsTaken} ${transcript}`, [
-    /\bsupervisor review\b/,
-    /\bfollow[- ]?up\b/,
-    /\bcall back\b/,
-    /\bescalat/,
-    /\bspecialist team\b/,
-    /\bwithin 24 hours\b/,
-    /\bsend the details\b/,
-    /\bcase open\b/,
-  ]);
-
   const customerConfirmedResolution = includesAny(transcript, [
     /\bthat makes more sense\b/,
     /\bi understand now\b/,
@@ -56,6 +45,20 @@ export function inferEffectiveSummary(ai = {}, crm = {}) {
     customerRequest.includes("understand a charge") ||
     customerRequest.includes("question about");
 
+  const hardFollowUpSignal = includesAny(`${nextBestAction} ${actionsTaken} ${transcript}`, [
+    /\bcall back\b/,
+    /\bescalat/,
+    /\bspecialist team\b/,
+    /\bsend the details\b/,
+    /\bcase open\b/,
+  ]);
+
+  const softFollowUpSignal = includesAny(`${nextBestAction} ${actionsTaken}`, [
+    /\bsupervisor review\b/,
+    /\bfollow[- ]?up\b/,
+    /\bwithin 24 hours\b/,
+  ]);
+
   const operatorExplained = includesAny(actionsTaken, [
     /\bexplained\b/,
     /\bclarified\b/,
@@ -66,7 +69,13 @@ export function inferEffectiveSummary(ai = {}, crm = {}) {
 
   const hasDeliveredAnswer = !!ai?.qaMilestones?.solutionGiven || operatorExplained;
 
-  if ((originalStatus === "follow_up" || originalStatus === "unresolved") && !needsFollowUp && customerConfirmedResolution && (clarificationCase || hasDeliveredAnswer)) {
+  const canAutoResolveClarification =
+    customerConfirmedResolution &&
+    hasDeliveredAnswer &&
+    clarificationCase &&
+    !hardFollowUpSignal;
+
+  if ((originalStatus === "follow_up" || originalStatus === "unresolved") && (canAutoResolveClarification || (!softFollowUpSignal && !hardFollowUpSignal && customerConfirmedResolution && hasDeliveredAnswer))) {
     return {
       ...summary,
       status: "resolved",
