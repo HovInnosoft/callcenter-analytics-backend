@@ -9,6 +9,7 @@ import { maskPII } from "../utils/pii.js";
 import { applyClientScope, requireAuth, requireRole, scopedClientId } from "../middleware/auth.js";
 import { audit } from "../middleware/audit.js";
 import { analyzeAudioWithGemini, analyzeTextWithGemini, geminiConfig } from "../utils/gemini.js";
+import { inferEffectiveSummary } from "../utils/effective-resolution.js";
 
 const router = express.Router();
 
@@ -65,6 +66,22 @@ function audioMimeFromSource(sourceUrl = "", contentType = "") {
   if (lower.endsWith(".m4a")) return "audio/mp4";
   if (lower.endsWith(".ogg")) return "audio/ogg";
   return "audio/mpeg";
+}
+
+function withEffectiveLatestAi(doc) {
+  if (!doc) return doc;
+  const aiVersions = [...(doc.aiVersions || [])];
+  if (!aiVersions.length) return doc;
+  const latestIndex = aiVersions.length - 1;
+  const latestVersion = aiVersions[latestIndex];
+  aiVersions[latestIndex] = {
+    ...latestVersion,
+    ai: {
+      ...latestVersion.ai,
+      summary: inferEffectiveSummary(latestVersion.ai, (doc.crmSnapshots || []).slice(-1)[0]),
+    },
+  };
+  return { ...doc, aiVersions };
 }
 
 async function downloadAudioToTemp(sourceUrl) {
@@ -131,15 +148,16 @@ router.get("/", requireAuth, async (req, res) => {
   }
 
   const list = docs.map((it) => {
-    const latest = (it.aiVersions || []).slice(-1)[0]?.ai;
+    const enriched = withEffectiveLatestAi(it);
+    const latest = (enriched.aiVersions || []).slice(-1)[0]?.ai;
     return {
-      interactionId: it.interactionId,
-      channel: it.channel,
-      direction: it.direction,
-      startedAt: it.startedAt,
-      durationSec: it.durationSec,
-      agent: it.agent,
-      customer: it.customer,
+      interactionId: enriched.interactionId,
+      channel: enriched.channel,
+      direction: enriched.direction,
+      startedAt: enriched.startedAt,
+      durationSec: enriched.durationSec,
+      agent: enriched.agent,
+      customer: enriched.customer,
       latestAi: latest ? {
         sentimentLabel: latest.sentimentLabel,
         sentimentScore: latest.sentimentScore,
@@ -306,7 +324,7 @@ router.get("/:interactionId", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
   }
 
-  res.json(doc);
+  res.json(withEffectiveLatestAi(doc));
 });
 
 // Create interaction manually (MVP)
@@ -379,6 +397,7 @@ router.post(
       deadAirPercent: d.deadAirPercent,
       evidenceSpans: [],
     };
+    ai.summary = inferEffectiveSummary(ai, { disposition: d.crmDisposition });
 
     const doc = await Interaction.create({
       clientId: scopedClientId(req),
@@ -466,6 +485,7 @@ router.post(
       },
       deadAirPercent: parsed.data.deadAirPercent ?? latest.deadAirPercent,
     };
+    ai.summary = inferEffectiveSummary(ai, doc.crmSnapshots.slice(-1)[0]);
 
     doc.aiVersions.push({ version: nextVersion, createdBy: req.user.sub, reason: parsed.data.reason, ai });
     await doc.save();

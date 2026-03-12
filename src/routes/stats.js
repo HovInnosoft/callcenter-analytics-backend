@@ -1,6 +1,7 @@
 import express from "express";
 import { applyClientScope, requireAuth } from "../middleware/auth.js";
 import { Interaction } from "../models/Interaction.js";
+import { inferEffectiveSummary } from "../utils/effective-resolution.js";
 
 const router = express.Router();
 
@@ -160,7 +161,7 @@ router.get("/executive-overview", requireAuth, async (req, res) => {
         );
       }
 
-      const st = ai.summary?.status || "unresolved";
+      const st = inferEffectiveSummary(ai, d.crmSnapshots?.slice(-1)[0]).status || "unresolved";
       unresolved[st] = (unresolved[st] || 0) + 1;
     }
   }

@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import { inferEffectiveSummary } from "./effective-resolution.js";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3-pro-preview";
@@ -138,6 +139,8 @@ function normalizeOutput(raw, transcript, channel) {
   if (out.qaMilestones.idVerification && !detectIdVerification(out.transcriptMasked)) {
     out.qaMilestones.idVerification = false;
   }
+
+  out.summary = inferEffectiveSummary(out);
 
   return out;
 }
