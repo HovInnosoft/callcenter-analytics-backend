@@ -79,9 +79,41 @@ async function downloadAudioToUploads(fileUrl) {
 }
 
 function mapDirection(input) {
+  const normalized = String(input || "").trim().toLowerCase();
   if (String(input) === "1") return "outbound";
   if (String(input) === "0") return "inbound";
-  return ["inbound", "outbound"].includes(input) ? input : "inbound";
+  if (normalized === "incoming call") return "inbound";
+  if (normalized === "outgoing call") return "outbound";
+  return ["inbound", "outbound"].includes(normalized) ? normalized : "inbound";
+}
+
+function decodeUrlValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function validateExternalUploadBody(body = {}) {
+  const requiredFields = ["callerId", "gateway", "caller", "callee", "direction", "disposition", "operator", "fileUrl"];
+  const missing = requiredFields.filter((field) => !String(body[field] ?? "").trim());
+  if (missing.length) {
+    throw new Error(`Missing required fields: ${missing.join(", ")}`);
+  }
+
+  return {
+    callerId: String(body.callerId).trim(),
+    gateway: String(body.gateway).trim(),
+    caller: String(body.caller).trim(),
+    callee: String(body.callee).trim(),
+    direction: String(body.direction).trim(),
+    disposition: String(body.disposition).trim(),
+    operator: String(body.operator).trim(),
+    fileUrl: decodeUrlValue(body.fileUrl),
+  };
 }
 
 function buildExternalInteractionPayload({ callCenter, body, file, recordingUrl = "" }) {
@@ -116,7 +148,7 @@ function buildExternalInteractionPayload({ callCenter, body, file, recordingUrl 
       recordingUrl,
     },
     aiVersions: [],
-    crmSnapshots: [{ disposition: "", outcomeTag: callCenter.id, updatedAt: Number.isNaN(endedAt.getTime()) ? now : endedAt }],
+    crmSnapshots: [{ disposition: body.disposition || "", outcomeTag: callCenter.id, updatedAt: Number.isNaN(endedAt.getTime()) ? now : endedAt }],
     integrity: { status: "new", updatedAt: Number.isNaN(endedAt.getTime()) ? now : endedAt },
   };
 }
@@ -322,18 +354,23 @@ router.post("/audio-upload", requireExternalAuth, upload.array("files", 40), asy
     return res.status(403).json({ error: "callCenterId does not match API key owner" });
   }
 
+  let validatedBody;
+  try {
+    validatedBody = validateExternalUploadBody(req.body || {});
+  } catch (e) {
+    return res.status(400).json({ error: e.message || "Invalid request body" });
+  }
+
   let files = req.files || [];
-  let downloadedFromUrl = false;
-  if (!files.length && req.body?.fileUrl) {
+  if (!files.length && validatedBody.fileUrl) {
     try {
-      files = [await downloadAudioToUploads(req.body.fileUrl)];
-      downloadedFromUrl = true;
+      files = [await downloadAudioToUploads(validatedBody.fileUrl)];
     } catch (e) {
       return res.status(400).json({ error: e.message || "Failed to download fileUrl" });
     }
   }
   if (!files.length) {
-    return res.status(400).json({ error: "No files uploaded. Use multipart/form-data with field name 'files' or JSON body with fileUrl." });
+    return res.status(400).json({ error: "No files uploaded. Provide a valid fileUrl in the request body." });
   }
 
   const out = [];
@@ -347,9 +384,9 @@ router.post("/audio-upload", requireExternalAuth, upload.array("files", 40), asy
       const doc = await Interaction.create(
         buildExternalInteractionPayload({
           callCenter,
-          body: req.body || {},
+          body: { ...(req.body || {}), ...validatedBody },
           file,
-          recordingUrl: downloadedFromUrl ? String(req.body.fileUrl || "").trim() : "",
+          recordingUrl: validatedBody.fileUrl,
         })
       );
 
@@ -358,7 +395,7 @@ router.post("/audio-upload", requireExternalAuth, upload.array("files", 40), asy
         ok: true,
         interactionId: doc.interactionId,
         state: "uploaded",
-        source: downloadedFromUrl ? "fileUrl" : "multipart",
+        source: "fileUrl",
       });
     } catch (e) {
       out.push({ filename: file.originalname, ok: false, error: e.message || "Failed to queue file" });
