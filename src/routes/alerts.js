@@ -25,7 +25,7 @@ router.post(
   audit("create", "Alert", () => ""),
   async (req, res) => {
     const schema = z.object({
-      type: z.enum(["crisis_spike","integrity_mismatch","compliance_fail"]),
+      type: z.enum(["crisis_spike","integrity_mismatch","compliance_fail","external_upload_fail"]),
       severity: z.enum(["medium","high","critical"]).optional().default("high"),
       title: z.string().min(3),
       description: z.string().optional().default(""),

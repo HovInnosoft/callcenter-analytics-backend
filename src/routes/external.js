@@ -3,6 +3,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
 import { Interaction } from "../models/Interaction.js";
+import { Alert } from "../models/Alert.js";
 import { maskPII } from "../utils/pii.js";
 import { analyzeAudioWithGemini, geminiConfig } from "../utils/gemini.js";
 import { requireExternalAuth } from "../middleware/externalAuth.js";
@@ -90,6 +91,23 @@ function shouldRetryFileUrlDownload(error) {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function createExternalUploadFailAlert(callCenter, body, error) {
+  await Alert.create({
+    clientId: callCenter.clientId || "default_client",
+    type: "external_upload_fail",
+    severity: "high",
+    title: "External audio download failed after retry",
+    description: String(error?.message || "Failed to download fileUrl after retry"),
+    interactionId: "",
+    clusterId: "",
+    evidence: {
+      callerId: body?.callerId || "",
+      operator: body?.operator || "",
+      fileUrl: body?.fileUrl || "",
+    },
+  });
 }
 
 function mapDirection(input) {
@@ -405,6 +423,7 @@ router.post("/audio-upload", requireExternalAuth, upload.array("files", 40), asy
         try {
           files = [await downloadAudioToUploads(validatedBody.fileUrl)];
         } catch (retryError) {
+          await createExternalUploadFailAlert(callCenter, validatedBody, retryError).catch(() => {});
           return res.status(400).json({ error: retryError.message || "Failed to download fileUrl after retry" });
         }
       } else {
