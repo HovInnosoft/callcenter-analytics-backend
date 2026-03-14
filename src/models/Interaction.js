@@ -82,6 +82,15 @@ const InteractionSchema = new mongoose.Schema(
       audioPath: { type: String, default: "" }, // server relative path
       recordingUrl: { type: String, default: "" }, // optional external
     },
+    externalMeta: {
+      callerId: { type: String, default: "" },
+      gateway: { type: String, default: "" },
+      caller: { type: String, default: "" },
+      callee: { type: String, default: "" },
+      directionLabel: { type: String, default: "" },
+      disposition: { type: String, default: "" },
+      operator: { type: String, default: "" },
+    },
     aiVersions: { type: [AiVersionSchema], default: [] }, // append-only
     crmSnapshots: { type: [CrmSnapshotSchema], default: [] }, // append-only
     integrity: {

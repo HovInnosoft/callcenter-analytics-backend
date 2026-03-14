@@ -147,6 +147,15 @@ function buildExternalInteractionPayload({ callCenter, body, file, recordingUrl 
       audioPath: `/${uploadDir}/${file.filename}`,
       recordingUrl,
     },
+    externalMeta: {
+      callerId: body.callerId || "",
+      gateway: body.gateway || "",
+      caller: body.caller || "",
+      callee: body.callee || "",
+      directionLabel: body.direction || "",
+      disposition: body.disposition || "",
+      operator: body.operator || "",
+    },
     aiVersions: ai
       ? [
           {
