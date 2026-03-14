@@ -116,7 +116,7 @@ function validateExternalUploadBody(body = {}) {
   };
 }
 
-function buildExternalInteractionPayload({ callCenter, body, file, recordingUrl = "" }) {
+function buildExternalInteractionPayload({ callCenter, body, file, recordingUrl = "", ai = null }) {
   const now = new Date();
   const endedAt = body.endedAt ? new Date(body.endedAt) : now;
   const startedAt = body.startedAt
@@ -147,7 +147,18 @@ function buildExternalInteractionPayload({ callCenter, body, file, recordingUrl 
       audioPath: `/${uploadDir}/${file.filename}`,
       recordingUrl,
     },
-    aiVersions: [],
+    aiVersions: ai
+      ? [
+          {
+            version: 1,
+            reason: "external_audio_upload",
+            ai: {
+              ...ai,
+              transcriptMasked: maskPII(ai.transcriptMasked || ""),
+            },
+          },
+        ]
+      : [],
     crmSnapshots: [{ disposition: body.disposition || "", outcomeTag: callCenter.id, updatedAt: Number.isNaN(endedAt.getTime()) ? now : endedAt }],
     integrity: { status: "new", updatedAt: Number.isNaN(endedAt.getTime()) ? now : endedAt },
   };
@@ -381,12 +392,14 @@ router.post("/audio-upload", requireExternalAuth, upload.array("files", 40), asy
     }
 
     try {
+      const ai = await analyzeAudioWithGemini(file.path, file.mimetype || "audio/mpeg");
       const doc = await Interaction.create(
         buildExternalInteractionPayload({
           callCenter,
           body: { ...(req.body || {}), ...validatedBody },
           file,
           recordingUrl: validatedBody.fileUrl,
+          ai,
         })
       );
 
@@ -394,18 +407,21 @@ router.post("/audio-upload", requireExternalAuth, upload.array("files", 40), asy
         filename: file.originalname,
         ok: true,
         interactionId: doc.interactionId,
-        state: "uploaded",
+        state: "analyzed",
         source: "fileUrl",
+        sentiment: doc.aiVersions?.[0]?.ai?.sentimentLabel || "neutral",
       });
     } catch (e) {
-      out.push({ filename: file.originalname, ok: false, error: e.message || "Failed to queue file" });
+      out.push({ filename: file.originalname, ok: false, error: e.message || "Failed to analyze file" });
     }
   }
 
   const okCount = out.filter((x) => x.ok).length;
   return res.status(okCount ? 201 : 400).json({
     ok: okCount > 0,
-    queued: okCount,
+    model: geminiConfig().model,
+    geminiEnabled: geminiConfig().enabled,
+    analyzed: okCount,
     failed: out.length - okCount,
     items: out,
   });
