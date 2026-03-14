@@ -327,6 +327,18 @@ router.get("/:interactionId", requireAuth, async (req, res) => {
   res.json(withEffectiveLatestAi(doc));
 });
 
+router.delete(
+  "/:interactionId",
+  requireAuth,
+  requireRole(["admin", "supervisor", "qa"]),
+  audit("delete", "Interaction", (req) => req.params.interactionId),
+  async (req, res) => {
+    const doc = await Interaction.findOneAndDelete(applyClientScope(req, { interactionId: req.params.interactionId }));
+    if (!doc) return res.status(404).json({ error: "Not found" });
+    res.json({ ok: true, interactionId: req.params.interactionId });
+  }
+);
+
 // Create interaction manually (MVP)
 router.post(
   "/",
