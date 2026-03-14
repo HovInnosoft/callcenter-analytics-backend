@@ -78,6 +78,20 @@ async function downloadAudioToUploads(fileUrl) {
   };
 }
 
+function shouldRetryFileUrlDownload(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("failed to download fileurl") ||
+    message.includes("fetch failed") ||
+    message.includes("network") ||
+    message.includes("timeout")
+  );
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function mapDirection(input) {
   const normalized = String(input || "").trim().toLowerCase();
   if (String(input) === "1") return "outbound";
@@ -386,7 +400,16 @@ router.post("/audio-upload", requireExternalAuth, upload.array("files", 40), asy
     try {
       files = [await downloadAudioToUploads(validatedBody.fileUrl)];
     } catch (e) {
-      return res.status(400).json({ error: e.message || "Failed to download fileUrl" });
+      if (shouldRetryFileUrlDownload(e)) {
+        await wait(5000);
+        try {
+          files = [await downloadAudioToUploads(validatedBody.fileUrl)];
+        } catch (retryError) {
+          return res.status(400).json({ error: retryError.message || "Failed to download fileUrl after retry" });
+        }
+      } else {
+        return res.status(400).json({ error: e.message || "Failed to download fileUrl" });
+      }
     }
   }
   if (!files.length) {
