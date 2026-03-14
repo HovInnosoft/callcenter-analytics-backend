@@ -34,6 +34,55 @@ function detectIdVerification(transcript) {
   return hasName && hasStrongCheck;
 }
 
+function isSilenceLikeTranscript(transcript) {
+  const text = String(transcript || "").trim().toLowerCase();
+  if (!text) return true;
+
+  const normalized = text.replace(/\s+/g, " ");
+  return [
+    "uploaded audio interaction",
+    "[silence]",
+    "silence",
+    "no speech detected",
+    "empty audio",
+  ].includes(normalized);
+}
+
+function applySilenceHeuristic(out) {
+  const transcriptLooksSilent = isSilenceLikeTranscript(out?.transcriptMasked);
+  const hasNoSignals =
+    !out?.qaMilestones?.greeting &&
+    !out?.qaMilestones?.idVerification &&
+    !out?.qaMilestones?.solutionGiven &&
+    !out?.qaMilestones?.closing;
+
+  if (!transcriptLooksSilent && !hasNoSignals) return out;
+
+  return {
+    ...out,
+    transcriptMasked: transcriptLooksSilent ? "" : out.transcriptMasked,
+    sentimentLabel: "neutral",
+    sentimentScore: 0,
+    baseNeedType: "Other",
+    topicClusterId: "cluster_000",
+    topicClusterTitle: "Silence / No Speech",
+    summary: {
+      customerRequest: "No speech detected in uploaded audio.",
+      actionsTaken: "No interaction content available for analysis.",
+      status: "unresolved",
+      nextBestAction: "Review the recording source or upload a valid call.",
+    },
+    qaMilestones: {
+      greeting: false,
+      idVerification: false,
+      solutionGiven: false,
+      closing: false,
+    },
+    deadAirPercent: 100,
+    evidenceSpans: [],
+  };
+}
+
 function fallbackFromText(transcript, channel = "voice") {
   const t = String(transcript || "").toLowerCase();
 
@@ -73,7 +122,7 @@ function fallbackFromText(transcript, channel = "voice") {
     ? { id: "cluster_004", title: "Delivery / Timing Complaint" }
     : { id: "cluster_001", title: channel === "email" ? "Email Inquiry" : "General Inquiry" };
 
-  return {
+  const out = {
     transcriptMasked: String(transcript || "").trim().slice(0, 12000),
     sentimentLabel,
     sentimentScore,
@@ -95,6 +144,8 @@ function fallbackFromText(transcript, channel = "voice") {
     deadAirPercent: 0,
     evidenceSpans: [],
   };
+
+  return applySilenceHeuristic(out);
 }
 
 function normalizeOutput(raw, transcript, channel) {
@@ -142,7 +193,7 @@ function normalizeOutput(raw, transcript, channel) {
 
   out.summary = inferEffectiveSummary(out);
 
-  return out;
+  return applySilenceHeuristic(out);
 }
 
 async function callGemini(parts) {
